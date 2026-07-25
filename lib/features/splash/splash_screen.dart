@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../services/wordpress_api.dart';
@@ -14,24 +15,67 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   late AnimationController _ctrl;
   late Animation<double> _fadeAnim;
 
+  String _statusMessage = 'प्रारंभ करत आहे...';
+  bool _hasError = false;
+  String _errorDetail = '';
+
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
     _fadeAnim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
     _ctrl.forward();
-    _checkAuth();
+    _runHealthChecks();
   }
 
-  Future<void> _checkAuth() async {
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-    final loggedIn = await WordPressApiService.instance.isLoggedIn();
-    if (!mounted) return;
-    if (loggedIn) {
-      context.go('/dashboard');
-    } else {
-      context.go('/login');
+  Future<void> _runHealthChecks() async {
+    try {
+      if (!mounted) return;
+      setState(() => _statusMessage = 'इंटरनेट कनेक्शन तपासत आहे...');
+      // 1. Check Internet DNS
+      final result = await InternetAddress.lookup('spnewsmaregaon.com').timeout(const Duration(seconds: 10));
+      if (result.isEmpty || result[0].rawAddress.isEmpty) {
+        throw Exception('इंटरनेट कनेक्शन नाही (No internet)');
+      }
+
+      if (!mounted) return;
+      setState(() => _statusMessage = 'वेबसाइट तपासत आहे...');
+      final api = WordPressApiService.instance;
+      // 2. Check Website Reachability
+      final ping = await api.dio.get('https://spnewsmaregaon.com/').timeout(const Duration(seconds: 10));
+      if (ping.statusCode != 200 && ping.statusCode != 301 && ping.statusCode != 302) {
+        throw Exception('वेबसाइट उपलब्ध नाही (HTTP ${ping.statusCode})');
+      }
+
+      if (!mounted) return;
+      setState(() => _statusMessage = 'API रूट तपासत आहे...');
+      // 3. Check WP API Route
+      final routeCheck = await api.dio.get('https://spnewsmaregaon.com/index.php?rest_route=/').timeout(const Duration(seconds: 10));
+      if (routeCheck.statusCode != 200) {
+        throw Exception('API रूट चुकीचा आहे (API Not Found - HTTP ${routeCheck.statusCode})');
+      }
+
+      if (!mounted) return;
+      setState(() => _statusMessage = 'लॉगिन तपासत आहे...');
+      
+      final loggedIn = await api.isLoggedIn();
+      
+      // Delay slightly for UX
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
+      
+      if (loggedIn) {
+        context.go('/dashboard');
+      } else {
+        context.go('/login');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _hasError = true;
+        _errorDetail = 'Error: $e';
+        _statusMessage = 'त्रुटी आढळली! (Check failed)';
+      });
     }
   }
 
@@ -74,14 +118,46 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.onSurfaceVariant),
               ),
               const SizedBox(height: 48),
-              SizedBox(
-                width: 140,
-                child: LinearProgressIndicator(
-                  backgroundColor: AppTheme.outline,
-                  valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
-                  borderRadius: BorderRadius.circular(4),
+              if (!_hasError) ...[
+                Text(_statusMessage, style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: 140,
+                  child: LinearProgressIndicator(
+                    backgroundColor: AppTheme.outline,
+                    valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
-              ),
+              ] else ...[
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.error.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.error.withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.error_outline, color: AppTheme.error, size: 32),
+                      const SizedBox(height: 8),
+                      Text(_statusMessage, style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.error)),
+                      const SizedBox(height: 4),
+                      Text(_errorDetail, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: AppTheme.error)),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() { _hasError = false; _errorDetail = ''; });
+                          _runHealthChecks();
+                        },
+                        style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error, foregroundColor: Colors.white),
+                        child: const Text('पुन्हा प्रयत्न करा (Retry)'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),

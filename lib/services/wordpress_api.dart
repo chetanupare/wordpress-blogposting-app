@@ -13,6 +13,7 @@ class WordPressApiService {
 
   final _storage = const FlutterSecureStorage();
   late final Dio _dio;
+  Dio get dio => _dio;
 
   static final WordPressApiService instance = WordPressApiService._();
 
