@@ -43,7 +43,8 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() { _error = 'चुकीचे नाव किंवा पासवर्ड. पुन्हा प्रयत्न करा.'; });
       }
     } catch (e) {
-      setState(() { _error = 'सर्व्हरशी जोडण्यात अयशस्वी: $e'; });
+      await WordPressApiService.instance.clearCredentials();
+      setState(() { _error = 'Error: $e'; });
     } finally {
       if (mounted) setState(() { _loading = false; });
     }

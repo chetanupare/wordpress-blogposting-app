@@ -40,12 +40,8 @@ class WordPressApiService {
 
   /// Test authentication
   Future<bool> testAuth() async {
-    try {
-      final r = await _dio.get(_url('/users/me'));
-      return r.statusCode == 200;
-    } catch (_) {
-      return false;
-    }
+    final r = await _dio.get(_url('/users/me'));
+    return r.statusCode == 200;
   }
 
   /// Save credentials to secure storage
