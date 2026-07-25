@@ -4,9 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
+import 'package:flutter_quill_delta_from_html/flutter_quill_delta_from_html.dart';
 import 'package:html2md/html2md.dart' as html2md;
 import 'package:markdown/markdown.dart' as md;
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -70,15 +74,15 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
         _featuredMediaUrl = _originalPost!.featuredMediaUrl;
         _featuredMediaId = data['featured_media'] == 0 ? null : data['featured_media'];
 
-        // Convert HTML to Quill Delta (Basic conversion using markdown as middleman)
+        // Convert HTML to Quill Delta 
         try {
           String htmlContent = data['content']['rendered'] ?? '';
-          String markdown = html2md.convert(htmlContent);
-          // Note: Full HTML -> Delta requires a more robust parser in production.
-          // For simplicity, we just insert the raw text if complex formatting fails.
-          _quillController.document.insert(0, htmlContent.replaceAll(RegExp(r'<[^>]*>'), ''));
+          if (htmlContent.isNotEmpty) {
+            final delta = HtmlToDelta().convert(htmlContent);
+            _quillController.document = quill.Document.fromDelta(delta);
+          }
         } catch (e) {
-          // Fallback
+          debugPrint('Delta parsing failed: $e');
         }
       }
     } catch (e) {
@@ -92,18 +96,53 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery);
     if (picked != null) {
-      setState(() {
-        _selectedImageFile = File(picked.path);
-        _featuredMediaUrl = null;
-      });
+      // Use image cropper
+      final cropped = await ImageCropper().cropImage(
+        sourcePath: picked.path,
+        aspectRatioPresets: [
+          CropAspectRatioPreset.square,
+          CropAspectRatioPreset.ratio3x2,
+          CropAspectRatioPreset.original,
+          CropAspectRatioPreset.ratio4x3,
+          CropAspectRatioPreset.ratio16x9
+        ],
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'फोटो क्रॉप करा',
+            toolbarColor: AppTheme.primary,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false,
+          ),
+          IOSUiSettings(
+            title: 'फोटो क्रॉप करा',
+          ),
+        ],
+      );
+
+      if (cropped != null) {
+        setState(() {
+          _selectedImageFile = File(cropped.path);
+          _featuredMediaUrl = null;
+        });
+      }
     }
   }
 
   Future<int?> _uploadFeaturedImage() async {
     if (_selectedImageFile == null) return _featuredMediaId;
     try {
+      final targetPath = '${_selectedImageFile!.path}_compressed.jpg';
+      final compressedFile = await FlutterImageCompress.compressAndGetFile(
+        _selectedImageFile!.absolute.path,
+        targetPath,
+        quality: 70,
+      );
+
+      final fileToUpload = compressedFile != null ? File(compressedFile.path) : _selectedImageFile!;
+
       final res = await WordPressApiService.instance.uploadMedia(
-        _selectedImageFile!, 
+        fileToUpload, 
         _selectedImageFile!.path.split('/').last,
       );
       return res.id;
@@ -199,6 +238,64 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
     ));
   }
 
+  void _showPreview() {
+    // Generate HTML from Quill Editor
+    final deltaJson = _quillController.document.toDelta().toJson();
+    final converter = QuillDeltaToHtmlConverter(deltaJson, ConverterOptions.options());
+    final htmlContent = converter.convert();
+    final title = _titleCtrl.text.isNotEmpty ? _titleCtrl.text : 'पूर्वावलोकन';
+    
+    final fullHtml = '''
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body { font-family: -apple-system, sans-serif; padding: 16px; line-height: 1.6; color: #333; }
+          h1 { font-size: 24px; font-weight: 700; margin-bottom: 24px; }
+          img { max-width: 100%; height: auto; border-radius: 8px; margin-bottom: 16px; }
+        </style>
+      </head>
+      <body>
+        <h1>$title</h1>
+        ${_featuredMediaUrl != null ? '<img src="$_featuredMediaUrl" />' : ''}
+        $htmlContent
+      </body>
+      </html>
+    ''';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          child: Container(
+            color: Colors.white,
+            child: Column(
+              children: [
+                AppBar(
+                  title: const Text('पूर्वावलोकन'),
+                  leading: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  backgroundColor: Colors.white,
+                  elevation: 1,
+                ),
+                Expanded(
+                  child: WebViewWidget(
+                    controller: WebViewController()
+                      ..loadHtmlString(fullHtml)
+                      ..setBackgroundColor(Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _titleCtrl.dispose();
@@ -227,6 +324,11 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
           style: Theme.of(context).textTheme.titleMedium,
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.remove_red_eye_outlined, size: 20),
+            onPressed: () => _showPreview(),
+            tooltip: 'Preview (पूर्वावलोकन)',
+          ),
           IconButton(
             icon: const Icon(Icons.cloud_upload_outlined, size: 20),
             onPressed: _saving ? null : () => _save('draft'),

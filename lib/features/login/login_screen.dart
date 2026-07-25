@@ -45,12 +45,16 @@ class _LoginScreenState extends State<LoginScreen> {
           final generatedAppPassword = res.data['app_password'];
           final osAppId = res.data['onesignal_app_id'];
           final osApiKey = res.data['onesignal_api_key'];
+          final displayName = res.data['display_name'];
+          final avatarUrl = res.data['avatar_url'];
           
           await WordPressApiService.instance.saveCredentials(
             username, 
             generatedAppPassword,
             osAppId: osAppId?.toString().isNotEmpty == true ? osAppId : null,
             osApiKey: osApiKey?.toString().isNotEmpty == true ? osApiKey : null,
+            displayName: displayName,
+            avatarUrl: avatarUrl,
           );
           if (mounted) context.go('/dashboard');
           return;

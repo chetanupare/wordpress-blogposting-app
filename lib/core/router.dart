@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/login/login_screen.dart';
+import '../features/login/lock_screen.dart';
 import '../features/shell/main_shell.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/posts/posts_screen.dart';
@@ -17,6 +18,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+      GoRoute(path: '/lock', builder: (_, __) => const LockScreen()),
       ShellRoute(
         builder: (context, state, child) => MainShell(child: child),
         routes: [

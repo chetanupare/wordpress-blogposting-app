@@ -65,9 +65,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       if (!mounted) return;
       
       if (loggedIn) {
-        context.go('/dashboard');
+        Future.microtask(() => context.go('/lock'));
       } else {
-        context.go('/login');
+        Future.microtask(() => context.go('/login'));
       }
     } catch (e) {
       if (!mounted) return;

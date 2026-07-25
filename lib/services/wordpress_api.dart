@@ -53,11 +53,20 @@ class WordPressApiService {
   }
 
   /// Save credentials to secure storage
-  Future<void> saveCredentials(String username, String password, {String? osAppId, String? osApiKey}) async {
+  Future<void> saveCredentials(String username, String password, {String? osAppId, String? osApiKey, String? displayName, String? avatarUrl}) async {
     await _storage.write(key: 'wp_username', value: username);
     await _storage.write(key: 'wp_app_password', value: password);
     if (osAppId != null) await _storage.write(key: 'os_app_id', value: osAppId);
     if (osApiKey != null) await _storage.write(key: 'os_api_key', value: osApiKey);
+    if (displayName != null) await _storage.write(key: 'wp_display_name', value: displayName);
+    if (avatarUrl != null) await _storage.write(key: 'wp_avatar_url', value: avatarUrl);
+  }
+
+  Future<Map<String, String?>> getUserProfile() async {
+    return {
+      'display_name': await _storage.read(key: 'wp_display_name'),
+      'avatar_url': await _storage.read(key: 'wp_avatar_url'),
+    };
   }
 
   /// Get OneSignal Credentials
