@@ -9,6 +9,7 @@ import '../../models/wp_models.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shimmer_widgets.dart';
 import '../../widgets/status_badge.dart';
+import '../../services/wordpress_api.dart';
 
 class PostsScreen extends ConsumerStatefulWidget {
   const PostsScreen({super.key});
@@ -138,7 +139,7 @@ class _PostsScreenState extends ConsumerState<PostsScreen> {
                           duration: const Duration(milliseconds: 375),
                           child: SlideAnimation(
                             verticalOffset: 50.0,
-                            child: FadeAnimation(
+                            child: FadeInAnimation(
                               child: _PostCard(post: filtered[i]),
                             ),
                           ),

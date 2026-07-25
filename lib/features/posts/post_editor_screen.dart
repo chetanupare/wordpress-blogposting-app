@@ -5,9 +5,9 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
 import 'package:flutter_quill_delta_from_html/flutter_quill_delta_from_html.dart';
-import 'package:html2md/html2md.dart' as html2md;
-import 'package:markdown/markdown.dart' as md;
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
+import 'package:dio/dio.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -83,7 +83,10 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
           String htmlContent = data['content']['rendered'] ?? '';
           if (htmlContent.isNotEmpty) {
             final delta = HtmlToDelta().convert(htmlContent);
-            _quillController.document = quill.Document.fromDelta(delta);
+            _quillController = quill.QuillController(
+              document: quill.Document.fromDelta(delta),
+              selection: const TextSelection.collapsed(offset: 0),
+            );
           }
         } catch (e) {
           debugPrint('Delta parsing failed: $e');
@@ -103,13 +106,6 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
       // Use image cropper
       final cropped = await ImageCropper().cropImage(
         sourcePath: picked.path,
-        aspectRatioPresets: [
-          CropAspectRatioPreset.square,
-          CropAspectRatioPreset.ratio3x2,
-          CropAspectRatioPreset.original,
-          CropAspectRatioPreset.ratio4x3,
-          CropAspectRatioPreset.ratio16x9
-        ],
         uiSettings: [
           AndroidUiSettings(
             toolbarTitle: 'फोटो क्रॉप करा',
@@ -117,9 +113,23 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
             toolbarWidgetColor: Colors.white,
             initAspectRatio: CropAspectRatioPreset.original,
             lockAspectRatio: false,
+            aspectRatioPresets: [
+              CropAspectRatioPreset.square,
+              CropAspectRatioPreset.ratio3x2,
+              CropAspectRatioPreset.original,
+              CropAspectRatioPreset.ratio4x3,
+              CropAspectRatioPreset.ratio16x9
+            ],
           ),
           IOSUiSettings(
             title: 'फोटो क्रॉप करा',
+            aspectRatioPresets: [
+              CropAspectRatioPreset.square,
+              CropAspectRatioPreset.ratio3x2,
+              CropAspectRatioPreset.original,
+              CropAspectRatioPreset.ratio4x3,
+              CropAspectRatioPreset.ratio16x9
+            ],
           ),
         ],
       );
@@ -336,10 +346,10 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
     
     try {
       // Convert Quill Delta to HTML
-      final deltaJson = _quillController.document.toDelta().toJson();
+      final deltaJson = List<Map<String, dynamic>>.from(_quillController.document.toDelta().toJson());
       final converter = QuillDeltaToHtmlConverter(
         deltaJson,
-        ConverterOptions.options(),
+        ConverterOptions(),
       );
       final htmlContent = converter.convert();
 
@@ -415,8 +425,8 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
 
   void _showPreview() {
     // Generate HTML from Quill Editor
-    final deltaJson = _quillController.document.toDelta().toJson();
-    final converter = QuillDeltaToHtmlConverter(deltaJson, ConverterOptions.options());
+    final deltaJson = List<Map<String, dynamic>>.from(_quillController.document.toDelta().toJson());
+    final converter = QuillDeltaToHtmlConverter(deltaJson, ConverterOptions());
     final htmlContent = converter.convert();
     final title = _titleCtrl.text.isNotEmpty ? _titleCtrl.text : 'पूर्वावलोकन';
     
