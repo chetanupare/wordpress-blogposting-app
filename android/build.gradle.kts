@@ -13,7 +13,7 @@ subprojects {
     project.layout.buildDirectory.value(newSubprojectBuildDir)
     
     afterEvaluate {
-        if (hasProperty("android")) {
+        if (project.name != "app" && hasProperty("android")) {
             configure<com.android.build.gradle.LibraryExtension> {
                 if (namespace == null) {
                     namespace = project.group.toString()
