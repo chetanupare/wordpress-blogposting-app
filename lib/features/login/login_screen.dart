@@ -43,7 +43,15 @@ class _LoginScreenState extends State<LoginScreen> {
         if (res.statusCode == 200 && res.data['success'] == true) {
           // Awesome, the plugin generated an application password for us!
           final generatedAppPassword = res.data['app_password'];
-          await WordPressApiService.instance.saveCredentials(username, generatedAppPassword);
+          final osAppId = res.data['onesignal_app_id'];
+          final osApiKey = res.data['onesignal_api_key'];
+          
+          await WordPressApiService.instance.saveCredentials(
+            username, 
+            generatedAppPassword,
+            osAppId: osAppId?.toString().isNotEmpty == true ? osAppId : null,
+            osApiKey: osApiKey?.toString().isNotEmpty == true ? osApiKey : null,
+          );
           if (mounted) context.go('/dashboard');
           return;
         }
@@ -81,13 +89,16 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 32),
               // Logo
               Container(
-                width: 72,
-                height: 72,
+                width: 100,
+                height: 100,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEEF2FF),
                   borderRadius: BorderRadius.circular(18),
+                  boxShadow: [BoxShadow(color: AppTheme.primary.withOpacity(0.1), blurRadius: 16, offset: const Offset(0, 4))],
                 ),
-                child: const Icon(Icons.article_rounded, size: 36, color: AppTheme.primary),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: Image.asset('assets/images/logo.webp', fit: BoxFit.cover),
+                ),
               ),
               const SizedBox(height: 20),
               // Login Card

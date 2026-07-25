@@ -96,15 +96,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 88,
-                height: 88,
+                width: 150,
+                height: 150,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEEF2FF),
                   borderRadius: BorderRadius.circular(22),
                   boxShadow: [BoxShadow(color: AppTheme.primary.withOpacity(0.15), blurRadius: 24, offset: const Offset(0, 8))],
                 ),
-                child: const Center(
-                  child: Icon(Icons.article_rounded, size: 44, color: AppTheme.primary),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: Image.asset('assets/images/logo.webp', fit: BoxFit.cover),
                 ),
               ),
               const SizedBox(height: 20),

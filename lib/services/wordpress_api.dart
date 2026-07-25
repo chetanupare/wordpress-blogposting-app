@@ -53,9 +53,19 @@ class WordPressApiService {
   }
 
   /// Save credentials to secure storage
-  Future<void> saveCredentials(String username, String password) async {
+  Future<void> saveCredentials(String username, String password, {String? osAppId, String? osApiKey}) async {
     await _storage.write(key: 'wp_username', value: username);
     await _storage.write(key: 'wp_app_password', value: password);
+    if (osAppId != null) await _storage.write(key: 'os_app_id', value: osAppId);
+    if (osApiKey != null) await _storage.write(key: 'os_api_key', value: osApiKey);
+  }
+
+  /// Get OneSignal Credentials
+  Future<Map<String, String?>> getOneSignalCredentials() async {
+    return {
+      'app_id': await _storage.read(key: 'os_app_id'),
+      'api_key': await _storage.read(key: 'os_api_key'),
+    };
   }
 
   /// Clear credentials (logout)

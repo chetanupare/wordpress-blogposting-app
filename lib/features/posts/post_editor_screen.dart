@@ -1,6 +1,15 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
+import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
+import 'package:html2md/html2md.dart' as html2md;
+import 'package:markdown/markdown.dart' as md;
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
+
 import '../../core/providers.dart';
 import '../../models/wp_models.dart';
 import '../../services/wordpress_api.dart';
@@ -16,14 +25,21 @@ class PostEditorScreen extends ConsumerStatefulWidget {
 
 class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
   final _titleCtrl = TextEditingController();
-  final _contentCtrl = TextEditingController();
   final _excerptCtrl = TextEditingController();
   final _slugCtrl = TextEditingController();
+  
+  late quill.QuillController _quillController;
+  final FocusNode _editorFocus = FocusNode();
 
   String _status = 'draft';
   List<int> _selectedCategories = [];
   List<int> _selectedTags = [];
   WpPost? _originalPost;
+  
+  File? _selectedImageFile;
+  String? _featuredMediaUrl;
+  int? _featuredMediaId;
+
   bool _loading = false;
   bool _saving = false;
   bool _showSettings = false;
@@ -31,23 +47,69 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.postId != null) _loadPost();
+    _quillController = quill.QuillController.basic();
+    if (widget.postId != null) {
+      _loadPost();
+    }
   }
 
   Future<void> _loadPost() async {
     setState(() => _loading = true);
     try {
-      final posts = await WordPressApiService.instance.getPosts(status: 'any', perPage: 1);
-      // Fetch specific post by filtering
       final api = WordPressApiService.instance;
-      final r = await api.getPosts(status: 'any', perPage: 1, search: '');
-      // For simplicity: direct get by ID
-      // In production, use /posts/{id} endpoint
-      // We'll simulate by finding matching ID
+      // Ideally we should use /posts/{id}, using simple get for now
+      final r = await api.dio.get('https://spnewsmaregaon.com/index.php?rest_route=/wp/v2/posts/${widget.postId}');
+      if (r.statusCode == 200) {
+        final data = r.data;
+        _originalPost = WpPost.fromJson(data);
+        _titleCtrl.text = _originalPost!.renderedTitle;
+        _excerptCtrl.text = data['excerpt']['raw'] ?? '';
+        _slugCtrl.text = _originalPost!.slug;
+        _status = _originalPost!.status;
+        _selectedCategories = _originalPost!.categories;
+        _featuredMediaUrl = _originalPost!.featuredMediaUrl;
+        _featuredMediaId = data['featured_media'] == 0 ? null : data['featured_media'];
+
+        // Convert HTML to Quill Delta (Basic conversion using markdown as middleman)
+        try {
+          String htmlContent = data['content']['rendered'] ?? '';
+          String markdown = html2md.convert(htmlContent);
+          // Note: Full HTML -> Delta requires a more robust parser in production.
+          // For simplicity, we just insert the raw text if complex formatting fails.
+          _quillController.document.insert(0, htmlContent.replaceAll(RegExp(r'<[^>]*>'), ''));
+        } catch (e) {
+          // Fallback
+        }
+      }
     } catch (e) {
       _showSnack('बातमी लोड करण्यात अयशस्वी');
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery);
+    if (picked != null) {
+      setState(() {
+        _selectedImageFile = File(picked.path);
+        _featuredMediaUrl = null;
+      });
+    }
+  }
+
+  Future<int?> _uploadFeaturedImage() async {
+    if (_selectedImageFile == null) return _featuredMediaId;
+    try {
+      final res = await WordPressApiService.instance.uploadMedia(
+        _selectedImageFile!, 
+        _selectedImageFile!.path.split('/').last,
+      );
+      return res.id;
+    } catch (e) {
+      _showSnack('इमेज अपलोड अयशस्वी: $e');
+      return null;
     }
   }
 
@@ -57,21 +119,40 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
       return;
     }
     setState(() => _saving = true);
+    
     try {
+      // Convert Quill Delta to HTML
+      final deltaJson = _quillController.document.toDelta().toJson();
+      final converter = QuillDeltaToHtmlConverter(
+        deltaJson,
+        ConverterOptions.options(),
+      );
+      final htmlContent = converter.convert();
+
+      // Upload image if needed
+      final mediaId = await _uploadFeaturedImage();
+
       final data = {
         'title': _titleCtrl.text.trim(),
-        'content': _contentCtrl.text.trim(),
+        'content': htmlContent,
         'excerpt': _excerptCtrl.text.trim(),
         'status': targetStatus,
         'slug': _slugCtrl.text.trim(),
         'categories': _selectedCategories,
-        'tags': _selectedTags,
+        if (mediaId != null) 'featured_media': mediaId,
       };
+
       if (widget.postId != null) {
         await WordPressApiService.instance.updatePost(widget.postId!, data);
       } else {
         await WordPressApiService.instance.createPost(data);
       }
+      
+      // Fire OneSignal Push Notification if publishing
+      if (targetStatus == 'publish') {
+         await _sendOneSignalPush(_titleCtrl.text.trim());
+      }
+
       if (!mounted) return;
       _showSnack(targetStatus == 'publish' ? 'बातमी प्रकाशित झाली!' : 'मसुदा जतन झाला');
       ref.invalidate(postsProvider('any'));
@@ -81,6 +162,32 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
       _showSnack('जतन करण्यात अयशस्वी: $e');
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _sendOneSignalPush(String title) async {
+    try {
+      final creds = await WordPressApiService.instance.getOneSignalCredentials();
+      final appId = creds['app_id'];
+      final apiKey = creds['api_key'];
+      
+      if (appId == null || apiKey == null || appId.isEmpty || apiKey.isEmpty) return;
+
+      await WordPressApiService.instance.dio.post(
+        'https://onesignal.com/api/v1/notifications',
+        options: Options(headers: {
+          'Authorization': 'Basic $apiKey',
+          'Content-Type': 'application/json',
+        }),
+        data: {
+          'app_id': appId,
+          'included_segments': ['Subscribed Users'],
+          'headings': {'en': 'SP News Maregaon', 'mr': 'एसपी न्यूज मारेगाव'},
+          'contents': {'en': title, 'mr': title},
+        },
+      );
+    } catch (e) {
+      debugPrint('Push failed: $e');
     }
   }
 
@@ -95,9 +202,10 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
   @override
   void dispose() {
     _titleCtrl.dispose();
-    _contentCtrl.dispose();
     _excerptCtrl.dispose();
     _slugCtrl.dispose();
+    _quillController.dispose();
+    _editorFocus.dispose();
     super.dispose();
   }
 
@@ -132,13 +240,47 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
       ),
       body: Column(
         children: [
+          // Featured Image Selector
+          GestureDetector(
+            onTap: _pickImage,
+            child: Container(
+              height: 180,
+              width: double.infinity,
+              margin: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.outline),
+                image: _selectedImageFile != null
+                    ? DecorationImage(image: FileImage(_selectedImageFile!), fit: BoxFit.cover)
+                    : _featuredMediaUrl != null
+                        ? DecorationImage(image: CachedNetworkImageProvider(_featuredMediaUrl!), fit: BoxFit.cover)
+                        : null,
+              ),
+              child: _selectedImageFile == null && _featuredMediaUrl == null
+                  ? Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.add_a_photo_outlined, size: 40, color: AppTheme.primary),
+                        const SizedBox(height: 8),
+                        Text('मुख्य फोटो निवडा (Featured Image)', style: Theme.of(context).textTheme.labelMedium),
+                      ],
+                    )
+                  : const Align(
+                      alignment: Alignment.bottomRight,
+                      child: Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: CircleAvatar(backgroundColor: Colors.black54, child: Icon(Icons.edit, color: Colors.white, size: 18)),
+                      ),
+                    ),
+            ),
+          ),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 8),
                   // Title
                   TextField(
                     controller: _titleCtrl,
@@ -153,21 +295,37 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
                     ),
                   ),
                   const Divider(),
-                  // Formatting Toolbar
-                  _buildToolbar(context),
+                  // Quill Editor Toolbar
+                  quill.QuillToolbar.simple(
+                    configurations: quill.QuillSimpleToolbarConfigurations(
+                      controller: _quillController,
+                      sharedConfigurations: const quill.QuillSharedConfigurations(
+                        locale: Locale('mr'),
+                      ),
+                      showAlignmentButtons: true,
+                      showCenterAlignment: true,
+                      showCodeBlock: false,
+                      showColorButton: true,
+                      showDirection: false,
+                      showFontFamily: false,
+                      showFontSize: false,
+                      showInlineCode: false,
+                      showListCheck: false,
+                    ),
+                  ),
                   const Divider(),
                   const SizedBox(height: 8),
-                  // Content
-                  TextField(
-                    controller: _contentCtrl,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.6),
-                    maxLines: null,
-                    decoration: const InputDecoration(
-                      hintText: 'इथे बातमी लिहा...',
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
+                  // Quill Editor Content
+                  Container(
+                    constraints: const BoxConstraints(minHeight: 300),
+                    child: quill.QuillEditor.basic(
+                      configurations: quill.QuillEditorConfigurations(
+                        controller: _quillController,
+                        sharedConfigurations: const quill.QuillSharedConfigurations(
+                          locale: Locale('mr'),
+                        ),
+                      ),
+                      focusNode: _editorFocus,
                     ),
                   ),
                   const SizedBox(height: 60),
@@ -177,36 +335,9 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
               ),
             ),
           ),
-          // Word count + publish bar
+          // Bottom action bar
           _buildBottomBar(context),
         ],
-      ),
-    );
-  }
-
-  Widget _buildToolbar(BuildContext context) {
-    const btns = [
-      ('H1', 'heading1'),
-      ('H2', 'heading2'),
-      ('B', 'bold'),
-      ('I', 'italic'),
-      ('•', 'list'),
-      ('"', 'quote'),
-    ];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: btns.map((b) => InkWell(
-          onTap: () {},
-          borderRadius: BorderRadius.circular(6),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Text(b.$1, style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              fontWeight: b.$1 == 'B' ? FontWeight.w800 : FontWeight.w500,
-              fontStyle: b.$1 == 'I' ? FontStyle.italic : FontStyle.normal,
-            )),
-          ),
-        )).toList(),
       ),
     );
   }
@@ -232,7 +363,6 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
           decoration: const InputDecoration(labelText: 'सारांश (Excerpt)', alignLabelWithHint: true),
         ),
         const SizedBox(height: 10),
-        // Categories
         _CategorySelector(selectedIds: _selectedCategories, onChanged: (ids) => setState(() => _selectedCategories = ids)),
         const SizedBox(height: 24),
       ],
@@ -240,7 +370,6 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
   }
 
   Widget _buildBottomBar(BuildContext context) {
-    final words = _contentCtrl.text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
@@ -250,18 +379,16 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
       ),
       child: Row(
         children: [
-          Text('$words शब्द', style: Theme.of(context).textTheme.bodySmall),
-          const Spacer(),
           OutlinedButton(
             onPressed: _saving ? null : () => _save('draft'),
             style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
             child: const Text('मसुदा'),
           ),
-          const SizedBox(width: 8),
+          const Spacer(),
           ElevatedButton.icon(
             onPressed: _saving ? null : () => _save('publish'),
             icon: _saving ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.send, size: 15),
-            label: const Text('प्रकाशित'),
+            label: const Text('प्रकाशित (Publish)'),
             style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8)),
           ),
         ],

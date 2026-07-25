@@ -39,21 +39,10 @@ class DashboardScreen extends ConsumerWidget {
                 const SizedBox(height: 10),
                 statsAsync.when(
                   data: (stats) => _buildStatsGrid(context, stats),
-                  loading: () => GridView.count(crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.5, children: List.generate(4, (_) => const DashboardStatShimmer())),
+                  loading: () => GridView.count(crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.5, children: List.generate(3, (_) => const DashboardStatShimmer())),
                   error: (e, _) => Text('त्रुटी: $e', style: const TextStyle(color: AppTheme.error, fontSize: 12)),
                 ),
-                const SizedBox(height: 16),
-                // Wide Cards
-                statsAsync.when(
-                  data: (stats) => Row(children: [
-                    Expanded(child: _wideCard(context, Icons.photo_library_outlined, 'मीडिया', stats.media.toString(), null)),
-                    const SizedBox(width: 10),
-                    Expanded(child: _wideCard(context, Icons.chat_bubble_outline, 'प्रलंबित टिप्पण्या', stats.pendingComments.toString(), stats.pendingComments > 0 ? AppTheme.error : null)),
-                  ]),
-                  loading: () => Row(children: [Expanded(child: DashboardStatShimmer()), SizedBox(width: 10), Expanded(child: DashboardStatShimmer())]),
-                  error: (_, __) => const SizedBox(),
-                ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 // Recent Posts
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -152,7 +141,6 @@ class DashboardScreen extends ConsumerWidget {
         _statCard(context, Icons.article_outlined, 'एकूण बातम्या', stats.totalPosts.toString(), null),
         _statCard(context, Icons.check_circle_outline, 'प्रकाशित', stats.published.toString(), AppTheme.success),
         _statCard(context, Icons.drafts_outlined, 'मसुदे', stats.drafts.toString(), null),
-        _statCard(context, Icons.schedule_outlined, 'नियोजित', stats.scheduled.toString(), AppTheme.warning),
       ],
     );
   }

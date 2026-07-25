@@ -151,60 +151,105 @@ class _PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => context.go('/posts/edit/${post.id}'),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceCard,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.outline),
-        ),
-        child: Row(
-          children: [
-            // Thumbnail
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: post.featuredMediaUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: post.featuredMediaUrl!,
-                      width: 72, height: 72, fit: BoxFit.cover,
-                      placeholder: (_, __) => Container(width: 72, height: 72, color: AppTheme.surface),
-                      errorWidget: (_, __, ___) => _placeholder(),
-                    )
-                  : _placeholder(),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    StatusBadge.fromStatus(post.status),
-                  ]),
-                  const SizedBox(height: 4),
-                  Text(
-                    post.renderedTitle,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    Icon(Icons.calendar_today_outlined, size: 11, color: AppTheme.onSurfaceVariant),
-                    const SizedBox(width: 3),
-                    Text(post.formattedDate, style: Theme.of(context).textTheme.bodySmall),
-                    const SizedBox(width: 8),
-                    Icon(Icons.timer_outlined, size: 11, color: AppTheme.onSurfaceVariant),
-                    const SizedBox(width: 3),
-                    Text(post.readingTime, style: Theme.of(context).textTheme.bodySmall),
-                  ]),
-                ],
+    return Dismissible(
+      key: ValueKey(post.id),
+      direction: DismissDirection.endToStart,
+      confirmDismiss: (direction) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('बातमी हटवायची?'),
+            content: const Text('तुम्हाला नक्की ही बातमी कचरापेटीत (Trash) टाकायची आहे का?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('नाही')),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error, foregroundColor: Colors.white),
+                child: const Text('हटवा (Delete)'),
               ),
-            ),
-            const Icon(Icons.chevron_right, size: 18, color: AppTheme.onSurfaceVariant),
-          ],
+            ],
+          ),
+        );
+      },
+      onDismissed: (direction) async {
+        // Optimistic UI or call delete via API
+        try {
+          // Delete via Riverpod provider or direct API call
+          await WordPressApiService.instance.dio.delete(
+            'https://spnewsmaregaon.com/index.php?rest_route=/wp/v2/posts/${post.id}',
+          );
+        } catch (e) {
+          // Error handling
+        }
+      },
+      background: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+        decoration: BoxDecoration(color: AppTheme.error, borderRadius: BorderRadius.circular(14)),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: const Icon(Icons.delete_outline, color: Colors.white),
+      ),
+      child: GestureDetector(
+        onTap: () => context.go('/posts/edit/${post.id}'),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceCard,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.outline),
+          ),
+          child: Row(
+            children: [
+              // Thumbnail
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: post.featuredMediaUrl != null
+                    ? CachedNetworkImage(
+                        imageUrl: post.featuredMediaUrl!,
+                        width: 72, height: 72, fit: BoxFit.cover,
+                        placeholder: (_, __) => Container(width: 72, height: 72, color: AppTheme.surface),
+                        errorWidget: (_, __, ___) => _placeholder(),
+                      )
+                    : _placeholder(),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        StatusBadge.fromStatus(post.status),
+                        GestureDetector(
+                          onTap: () => context.go('/posts/edit/${post.id}'),
+                          child: const Text('Edit', style: TextStyle(fontSize: 12, color: AppTheme.primary, fontWeight: FontWeight.w600)),
+                        )
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      post.renderedTitle,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(children: [
+                      Icon(Icons.calendar_today_outlined, size: 11, color: AppTheme.onSurfaceVariant),
+                      const SizedBox(width: 3),
+                      Text(post.formattedDate, style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(width: 8),
+                      Icon(Icons.timer_outlined, size: 11, color: AppTheme.onSurfaceVariant),
+                      const SizedBox(width: 3),
+                      Text(post.readingTime, style: Theme.of(context).textTheme.bodySmall),
+                    ]),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
