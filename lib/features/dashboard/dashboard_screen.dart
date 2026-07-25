@@ -151,7 +151,7 @@ class DashboardScreen extends ConsumerWidget {
       children: [
         _statCard(context, Icons.article_outlined, 'एकूण बातम्या', stats.totalPosts.toString(), null),
         _statCard(context, Icons.check_circle_outline, 'प्रकाशित', stats.published.toString(), AppTheme.success),
-        _statCard(context, Icons.draft_outlined, 'मसुदे', stats.drafts.toString(), null),
+        _statCard(context, Icons.drafts_outlined, 'मसुदे', stats.drafts.toString(), null),
         _statCard(context, Icons.schedule_outlined, 'नियोजित', stats.scheduled.toString(), AppTheme.warning),
       ],
     );
