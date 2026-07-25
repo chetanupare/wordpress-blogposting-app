@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../../services/wordpress_api.dart';
 import '../../theme/app_theme.dart';
 
@@ -11,10 +12,7 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _fadeAnim;
-
+class _SplashScreenState extends State<SplashScreen> {
   String _statusMessage = 'प्रारंभ करत आहे...';
   bool _hasError = false;
   String _errorDetail = '';
@@ -22,9 +20,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
-    _fadeAnim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
-    _ctrl.forward();
     _runHealthChecks();
   }
 
@@ -80,86 +75,79 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   }
 
   @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: FadeTransition(
-        opacity: _fadeAnim,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [BoxShadow(color: AppTheme.primary.withOpacity(0.15), blurRadius: 24, offset: const Offset(0, 8))],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(22),
+                child: Image.asset('assets/images/logo.webp', fit: BoxFit.cover),
+              ),
+            ).animate()
+             .fade(duration: 800.ms)
+             .scale(begin: const Offset(0.8, 0.8), end: const Offset(1.0, 1.0), duration: 800.ms, curve: Curves.easeOutBack),
+            const SizedBox(height: 20),
+            Text(
+              'SP Posting',
+              style: Theme.of(context).textTheme.displayLarge?.copyWith(color: AppTheme.onSurface, fontWeight: FontWeight.w800),
+            ).animate().fade(delay: 200.ms, duration: 600.ms).slideY(begin: 0.2, end: 0, duration: 600.ms, curve: Curves.easeOutCubic),
+            const SizedBox(height: 6),
+            Text(
+              'मारेगाव बातम्या व्यवस्थापक',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.onSurfaceVariant),
+            ).animate().fade(delay: 300.ms, duration: 600.ms),
+            const SizedBox(height: 48),
+            if (!_hasError) ...[
+              Text(_statusMessage, style: Theme.of(context).textTheme.bodySmall).animate().fade(delay: 400.ms),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: 140,
+                child: LinearProgressIndicator(
+                  backgroundColor: AppTheme.outline,
+                  valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ).animate().fade(delay: 500.ms, duration: 600.ms),
+            ] else ...[
               Container(
-                width: 150,
-                height: 150,
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(22),
-                  boxShadow: [BoxShadow(color: AppTheme.primary.withOpacity(0.15), blurRadius: 24, offset: const Offset(0, 8))],
+                  color: AppTheme.error.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.error.withOpacity(0.3)),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(22),
-                  child: Image.asset('assets/images/logo.webp', fit: BoxFit.cover),
+                child: Column(
+                  children: [
+                    const Icon(Icons.error_outline, color: AppTheme.error, size: 32),
+                    const SizedBox(height: 8),
+                    Text(_statusMessage, style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.error)),
+                    const SizedBox(height: 4),
+                    Text(_errorDetail, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: AppTheme.error)),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () {
+                        setState(() { _hasError = false; _errorDetail = ''; });
+                        _runHealthChecks();
+                      },
+                      style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error, foregroundColor: Colors.white),
+                      child: const Text('पुन्हा प्रयत्न करा (Retry)'),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'SP Posting',
-                style: Theme.of(context).textTheme.displayLarge?.copyWith(color: AppTheme.onSurface, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'मारेगाव बातम्या व्यवस्थापक',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 48),
-              if (!_hasError) ...[
-                Text(_statusMessage, style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: 140,
-                  child: LinearProgressIndicator(
-                    backgroundColor: AppTheme.outline,
-                    valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ] else ...[
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 24),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.error.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.error.withOpacity(0.3)),
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(Icons.error_outline, color: AppTheme.error, size: 32),
-                      const SizedBox(height: 8),
-                      Text(_statusMessage, style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.error)),
-                      const SizedBox(height: 4),
-                      Text(_errorDetail, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: AppTheme.error)),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () {
-                          setState(() { _hasError = false; _errorDetail = ''; });
-                          _runHealthChecks();
-                        },
-                        style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error, foregroundColor: Colors.white),
-                        child: const Text('पुन्हा प्रयत्न करा (Retry)'),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ).animate().fade(duration: 400.ms).slideY(begin: 0.1, end: 0, duration: 400.ms),
             ],
-          ),
+          ],
         ),
       ),
     );

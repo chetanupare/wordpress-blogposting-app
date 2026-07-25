@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../../services/wordpress_api.dart';
 import '../../theme/app_theme.dart';
 
@@ -47,6 +48,7 @@ class _LoginScreenState extends State<LoginScreen> {
           final osApiKey = res.data['onesignal_api_key'];
           final displayName = res.data['display_name'];
           final avatarUrl = res.data['avatar_url'];
+          final groqApiKey = res.data['groq_api_key'];
           
           await WordPressApiService.instance.saveCredentials(
             username, 
@@ -55,6 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
             osApiKey: osApiKey?.toString().isNotEmpty == true ? osApiKey : null,
             displayName: displayName,
             avatarUrl: avatarUrl,
+            groqApiKey: groqApiKey?.toString().isNotEmpty == true ? groqApiKey : null,
           );
           if (mounted) context.go('/dashboard');
           return;
@@ -103,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   borderRadius: BorderRadius.circular(18),
                   child: Image.asset('assets/images/logo.webp', fit: BoxFit.cover),
                 ),
-              ),
+              ).animate().fade(duration: 500.ms).slideY(begin: 0.2, end: 0, duration: 500.ms, curve: Curves.easeOutCubic),
               const SizedBox(height: 20),
               // Login Card
               Container(
@@ -207,16 +210,16 @@ class _LoginScreenState extends State<LoginScreen> {
                           onPressed: () => setState(() { _useAppPassword = !_useAppPassword; _passwordCtrl.clear(); }),
                         ),
                       ),
-                    ],
+                    ].animate(interval: 80.ms).fade(duration: 400.ms).slideY(begin: 0.1, end: 0, duration: 400.ms, curve: Curves.easeOutQuart),
                   ),
                 ),
-              ),
+              ).animate().fade(delay: 200.ms, duration: 500.ms).slideY(begin: 0.1, end: 0, duration: 500.ms, curve: Curves.easeOutCubic),
               const SizedBox(height: 20),
               Text(
                 'टीप: WordPress Admin → Users → Profile मध्ये Application Password तयार करा.',
                 style: Theme.of(context).textTheme.bodySmall,
                 textAlign: TextAlign.center,
-              ),
+              ).animate().fade(delay: 600.ms),
             ],
           ),
         ),

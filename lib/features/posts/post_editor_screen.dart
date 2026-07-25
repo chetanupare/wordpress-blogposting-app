@@ -11,8 +11,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:crypto/crypto.dart';
 
 import '../../core/providers.dart';
 import '../../models/wp_models.dart';
@@ -47,6 +49,8 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
   bool _loading = false;
   bool _saving = false;
   bool _showSettings = false;
+  bool _uploadingVideo = false;
+  String _videoUploadStatus = '';
 
   @override
   void initState() {
@@ -149,6 +153,177 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
     } catch (e) {
       _showSnack('इमेज अपलोड अयशस्वी: $e');
       return null;
+    }
+  }
+
+  Future<void> _pickAndUploadCloudinaryVideo() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickVideo(source: ImageSource.gallery);
+    if (picked == null) return;
+
+    setState(() {
+      _uploadingVideo = true;
+      _videoUploadStatus = 'व्हिडिओ तयार करत आहे...';
+    });
+
+    try {
+      final file = File(picked.path);
+      const cloudName = 'pa8qw536';
+      const apiKey = '417576114439126';
+      const apiSecret = '5TGhuJNEpjpbKsHWWtfvK2K9eyY';
+      
+      final timestamp = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+      final strToSign = 'timestamp=$timestamp$apiSecret';
+      final signature = sha1.convert(utf8.encode(strToSign)).toString();
+
+      setState(() => _videoUploadStatus = 'अपलोड करत आहे (Cloudinary)...');
+
+      final formData = FormData.fromMap({
+        'api_key': apiKey,
+        'timestamp': timestamp,
+        'signature': signature,
+        'file': await MultipartFile.fromFile(file.path, filename: file.path.split('/').last),
+      });
+
+      final res = await WordPressApiService.instance.dio.post(
+        'https://api.cloudinary.com/v1_1/$cloudName/video/upload',
+        data: formData,
+        onSendProgress: (count, total) {
+          if (total > 0 && mounted) {
+            final pct = (count / total * 100).toStringAsFixed(0);
+            setState(() => _videoUploadStatus = 'अपलोड करत आहे: $pct%');
+          }
+        },
+      );
+
+      if (res.statusCode == 200) {
+        final secureUrl = res.data['secure_url'];
+        
+        // Insert shortcode or HTML tag directly into editor
+        final index = _quillController.selection.baseOffset;
+        final position = index > -1 ? index : _quillController.document.length;
+        
+        // Insert video tag
+        _quillController.document.insert(position, '\n\n[video src="$secureUrl"]\n\n');
+        _showSnack('व्हिडिओ यशस्वीरित्या जोडला!');
+      }
+    } catch (e) {
+      debugPrint('Cloudinary Video Upload Error: $e');
+      _showSnack('व्हिडिओ अपलोड अयशस्वी झाला!');
+    } finally {
+      if (mounted) setState(() { _uploadingVideo = false; _videoUploadStatus = ''; });
+    }
+  }
+
+  Future<void> _generateAiImage() async {
+    final groqKey = await WordPressApiService.instance.getGroqApiKey();
+    if (groqKey == null || groqKey.isEmpty) {
+      _showSnack('Groq API Key आढळली नाही. कृपया सेटिंग्ज तपासा.');
+      return;
+    }
+
+    final title = _titleCtrl.text.trim();
+    if (title.isEmpty) {
+      _showSnack('AI फोटो तयार करण्यासाठी आधी शीर्षक लिहा.');
+      return;
+    }
+
+    setState(() {
+      _uploadingVideo = true;
+      _videoUploadStatus = 'AI Prompt तयार करत आहे...';
+    });
+
+    try {
+      final res = await WordPressApiService.instance.dio.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        options: Options(headers: {
+          'Authorization': 'Bearer $groqKey',
+          'Content-Type': 'application/json',
+        }),
+        data: {
+          'model': 'llama3-8b-8192',
+          'messages': [
+            {'role': 'system', 'content': 'You are a helpful assistant that writes short, descriptive English prompts for an image generation AI (like Midjourney/Pollinations). The prompt should generate a realistic news image suitable for a Marathi news portal. Just output the prompt text, no intro, no quotes.'},
+            {'role': 'user', 'content': 'Create an image generation prompt for this Marathi news article title: $title'}
+          ],
+          'max_tokens': 50,
+        },
+      );
+
+      final prompt = res.data['choices'][0]['message']['content'].toString().trim();
+      
+      if (mounted) setState(() => _videoUploadStatus = 'फोटो डाउनलोड करत आहे...');
+      
+      final encoded = Uri.encodeComponent(prompt);
+      final url = 'https://image.pollinations.ai/prompt/$encoded';
+      
+      final file = File('${Directory.systemTemp.path}/ai_image_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await WordPressApiService.instance.dio.download(url, file.path);
+
+      if (mounted) {
+        setState(() {
+          _selectedImageFile = file;
+          _featuredMediaUrl = null;
+        });
+        _showSnack('AI फोटो तयार झाला!');
+      }
+    } catch (e) {
+      debugPrint('AI Image Error: $e');
+      _showSnack('AI फोटो तयार करण्यात अडचण आली.');
+    } finally {
+      if (mounted) setState(() { _uploadingVideo = false; _videoUploadStatus = ''; });
+    }
+  }
+
+  Future<void> _aiSuggest() async {
+    final groqKey = await WordPressApiService.instance.getGroqApiKey();
+    if (groqKey == null || groqKey.isEmpty) {
+      _showSnack('Groq API Key आढळली नाही.');
+      return;
+    }
+
+    final plainText = _quillController.document.toPlainText();
+    final index = _quillController.selection.baseOffset;
+    final position = index > -1 ? index : plainText.length;
+    final textContext = plainText.substring(0, position);
+
+    if (textContext.trim().isEmpty) {
+      _showSnack('मदत करण्यासाठी आधी थोडी माहिती लिहा.');
+      return;
+    }
+
+    setState(() {
+      _uploadingVideo = true;
+      _videoUploadStatus = 'AI विचार करत आहे...';
+    });
+
+    try {
+      final res = await WordPressApiService.instance.dio.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        options: Options(headers: {
+          'Authorization': 'Bearer $groqKey',
+          'Content-Type': 'application/json',
+        }),
+        data: {
+          'model': 'llama3-8b-8192',
+          'messages': [
+            {'role': 'system', 'content': 'You are an AI writing assistant for a Marathi news portal. Complete the sentence or write the next logical sentence in pure Marathi language based on the context. Keep it very short, around 1 sentence. Do not wrap in quotes or add conversational filler.'},
+            {'role': 'user', 'content': 'Continue this text:\n$textContext'}
+          ],
+          'max_tokens': 100,
+        },
+      );
+
+      final suggestion = res.data['choices'][0]['message']['content'].toString().trim();
+      
+      _quillController.document.insert(position, ' ' + suggestion);
+      _quillController.updateSelection(TextSelection.collapsed(offset: position + suggestion.length + 1), quill.ChangeSource.local);
+      
+    } catch (e) {
+      debugPrint('AI Suggest Error: $e');
+      _showSnack('AI सुचवण्यात अडचण आली.');
+    } finally {
+      if (mounted) setState(() { _uploadingVideo = false; _videoUploadStatus = ''; });
     }
   }
 
@@ -325,6 +500,16 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.auto_awesome, size: 24, color: Colors.amber),
+            onPressed: _uploadingVideo ? null : _aiSuggest,
+            tooltip: 'AI सुचवा (Groq Suggest)',
+          ),
+          IconButton(
+            icon: const Icon(Icons.video_call_outlined, size: 24, color: AppTheme.primary),
+            onPressed: _uploadingVideo ? null : _pickAndUploadCloudinaryVideo,
+            tooltip: 'Cloudinary व्हिडिओ',
+          ),
+          IconButton(
             icon: const Icon(Icons.remove_red_eye_outlined, size: 20),
             onPressed: () => _showPreview(),
             tooltip: 'Preview (पूर्वावलोकन)',
@@ -340,105 +525,160 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // Featured Image Selector
-          GestureDetector(
-            onTap: _pickImage,
-            child: Container(
-              height: 180,
-              width: double.infinity,
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppTheme.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.outline),
-                image: _selectedImageFile != null
-                    ? DecorationImage(image: FileImage(_selectedImageFile!), fit: BoxFit.cover)
-                    : _featuredMediaUrl != null
-                        ? DecorationImage(image: CachedNetworkImageProvider(_featuredMediaUrl!), fit: BoxFit.cover)
-                        : null,
-              ),
-              child: _selectedImageFile == null && _featuredMediaUrl == null
-                  ? Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.add_a_photo_outlined, size: 40, color: AppTheme.primary),
-                        const SizedBox(height: 8),
-                        Text('मुख्य फोटो निवडा (Featured Image)', style: Theme.of(context).textTheme.labelMedium),
-                      ],
-                    )
-                  : const Align(
-                      alignment: Alignment.bottomRight,
-                      child: Padding(
-                        padding: EdgeInsets.all(8.0),
-                        child: CircleAvatar(backgroundColor: Colors.black54, child: Icon(Icons.edit, color: Colors.white, size: 18)),
-                      ),
-                    ),
-            ),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title
-                  TextField(
-                    controller: _titleCtrl,
-                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w700),
-                    maxLines: null,
-                    decoration: const InputDecoration(
-                      hintText: 'शीर्षक लिहा...',
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
-                    ),
+          Column(
+            children: [
+              // Featured Image Selector
+              Hero(
+                tag: 'featured-image-${widget.postId ?? "new"}',
+                child: Container(
+                  height: 180,
+                  width: double.infinity,
+                  margin: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.outline),
+                    image: _selectedImageFile != null
+                        ? DecorationImage(image: FileImage(_selectedImageFile!), fit: BoxFit.cover)
+                        : _featuredMediaUrl != null
+                            ? DecorationImage(image: CachedNetworkImageProvider(_featuredMediaUrl!), fit: BoxFit.cover)
+                            : null,
                   ),
-                  const Divider(),
-                  // Quill Editor Toolbar
-                  quill.QuillToolbar.simple(
-                    configurations: quill.QuillSimpleToolbarConfigurations(
-                      controller: _quillController,
-                      sharedConfigurations: const quill.QuillSharedConfigurations(
-                        locale: Locale('mr'),
-                      ),
-                      showAlignmentButtons: true,
-                      showCenterAlignment: true,
-                      showCodeBlock: false,
-                      showColorButton: true,
-                      showDirection: false,
-                      showFontFamily: false,
-                      showFontSize: false,
-                      showInlineCode: false,
-                      showListCheck: false,
-                    ),
-                  ),
-                  const Divider(),
-                  const SizedBox(height: 8),
-                  // Quill Editor Content
-                  Container(
-                    constraints: const BoxConstraints(minHeight: 300),
-                    child: quill.QuillEditor.basic(
-                      configurations: quill.QuillEditorConfigurations(
-                        controller: _quillController,
-                        sharedConfigurations: const quill.QuillSharedConfigurations(
-                          locale: Locale('mr'),
+                  child: _selectedImageFile == null && _featuredMediaUrl == null
+                      ? Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            InkWell(
+                              onTap: _pickImage,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.add_a_photo_outlined, size: 40, color: AppTheme.primary),
+                                  const SizedBox(height: 8),
+                                  Text('गॅलरी (Gallery)', style: Theme.of(context).textTheme.labelMedium),
+                                ],
+                              ),
+                            ),
+                            Container(width: 1, height: 60, color: AppTheme.outline),
+                            InkWell(
+                              onTap: _generateAiImage,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.auto_awesome, size: 40, color: Colors.amber),
+                                  const SizedBox(height: 8),
+                                  Text('AI फोटो (Groq)', style: Theme.of(context).textTheme.labelMedium),
+                                ],
+                              ),
+                            ),
+                          ],
+                        )
+                      : Align(
+                          alignment: Alignment.bottomRight,
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                InkWell(
+                                  onTap: _generateAiImage,
+                                  child: const CircleAvatar(backgroundColor: Colors.amber, child: Icon(Icons.auto_awesome, color: Colors.white, size: 18)),
+                                ),
+                                const SizedBox(width: 8),
+                                InkWell(
+                                  onTap: _pickImage,
+                                  child: const CircleAvatar(backgroundColor: Colors.black54, child: Icon(Icons.edit, color: Colors.white, size: 18)),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                      focusNode: _editorFocus,
-                    ),
+                ),
+              ).animate().fade(duration: 400.ms).slideY(begin: -0.1, end: 0, curve: Curves.easeOutCubic),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Title
+                      TextField(
+                        controller: _titleCtrl,
+                        style: Theme.of(context).textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w700),
+                        maxLines: null,
+                        decoration: const InputDecoration(
+                          hintText: 'शीर्षक लिहा...',
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ).animate().fade(delay: 100.ms, duration: 400.ms).slideX(begin: 0.05, end: 0),
+                      const Divider(),
+                      // Quill Editor Toolbar
+                      quill.QuillToolbar.simple(
+                        configurations: quill.QuillSimpleToolbarConfigurations(
+                          controller: _quillController,
+                          sharedConfigurations: const quill.QuillSharedConfigurations(
+                            locale: Locale('mr'),
+                          ),
+                          showAlignmentButtons: true,
+                          showCenterAlignment: true,
+                          showCodeBlock: false,
+                          showColorButton: true,
+                          showDirection: false,
+                          showFontFamily: false,
+                          showFontSize: false,
+                          showInlineCode: false,
+                          showListCheck: false,
+                        ),
+                      ).animate().fade(delay: 200.ms, duration: 400.ms),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      // Quill Editor Content
+                      Container(
+                        constraints: const BoxConstraints(minHeight: 300),
+                        child: quill.QuillEditor.basic(
+                          configurations: quill.QuillEditorConfigurations(
+                            controller: _quillController,
+                            sharedConfigurations: const quill.QuillSharedConfigurations(
+                              locale: Locale('mr'),
+                            ),
+                          ),
+                          focusNode: _editorFocus,
+                        ),
+                      ).animate().fade(delay: 300.ms, duration: 500.ms),
+                      const SizedBox(height: 60),
+                      // Settings Panel
+                      if (_showSettings) _buildSettingsPanel(context),
+                    ],
                   ),
-                  const SizedBox(height: 60),
-                  // Settings Panel
-                  if (_showSettings) _buildSettingsPanel(context),
-                ],
+                ),
+              ),
+              // Bottom action bar
+              _buildBottomBar(context).animate().fade(duration: 400.ms).slideY(begin: 0.5, end: 0, curve: Curves.easeOutCubic),
+            ],
+          ),
+          if (_uploadingVideo)
+            Container(
+              color: Colors.black54,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(color: AppTheme.primary),
+                      const SizedBox(height: 16),
+                      Text(_videoUploadStatus, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
-          // Bottom action bar
-          _buildBottomBar(context),
         ],
       ),
     );

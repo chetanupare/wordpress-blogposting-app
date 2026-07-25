@@ -53,13 +53,14 @@ class WordPressApiService {
   }
 
   /// Save credentials to secure storage
-  Future<void> saveCredentials(String username, String password, {String? osAppId, String? osApiKey, String? displayName, String? avatarUrl}) async {
+  Future<void> saveCredentials(String username, String password, {String? osAppId, String? osApiKey, String? displayName, String? avatarUrl, String? groqApiKey}) async {
     await _storage.write(key: 'wp_username', value: username);
     await _storage.write(key: 'wp_app_password', value: password);
     if (osAppId != null) await _storage.write(key: 'os_app_id', value: osAppId);
     if (osApiKey != null) await _storage.write(key: 'os_api_key', value: osApiKey);
     if (displayName != null) await _storage.write(key: 'wp_display_name', value: displayName);
     if (avatarUrl != null) await _storage.write(key: 'wp_avatar_url', value: avatarUrl);
+    if (groqApiKey != null) await _storage.write(key: 'groq_api_key', value: groqApiKey);
   }
 
   Future<Map<String, String?>> getUserProfile() async {
@@ -75,6 +76,11 @@ class WordPressApiService {
       'app_id': await _storage.read(key: 'os_app_id'),
       'api_key': await _storage.read(key: 'os_api_key'),
     };
+  }
+  
+  /// Get Groq API Key
+  Future<String?> getGroqApiKey() async {
+    return await _storage.read(key: 'groq_api_key');
   }
 
   /// Clear credentials (logout)

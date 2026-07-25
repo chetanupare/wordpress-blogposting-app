@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import '../../core/providers.dart';
 import '../../models/wp_models.dart';
 import '../../theme/app_theme.dart';
@@ -126,10 +128,23 @@ class _PostsScreenState extends ConsumerState<PostsScreen> {
                 return RefreshIndicator(
                   onRefresh: () => ref.read(postsProvider(_selectedStatus).notifier).refresh(),
                   color: AppTheme.primary,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: filtered.length,
-                    itemBuilder: (ctx, i) => _PostCard(post: filtered[i]),
+                  child: AnimationLimiter(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: filtered.length,
+                      itemBuilder: (ctx, i) {
+                        return AnimationConfiguration.staggeredList(
+                          position: i,
+                          duration: const Duration(milliseconds: 375),
+                          child: SlideAnimation(
+                            verticalOffset: 50.0,
+                            child: FadeAnimation(
+                              child: _PostCard(post: filtered[i]),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 );
               },
@@ -137,9 +152,27 @@ class _PostsScreenState extends ConsumerState<PostsScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.go('/posts/new'),
-        child: const Icon(Icons.add),
+      floatingActionButton: SpeedDial(
+        icon: Icons.add,
+        activeIcon: Icons.close,
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
+        overlayColor: Colors.black,
+        overlayOpacity: 0.4,
+        spacing: 12,
+        spaceBetweenChildren: 8,
+        children: [
+          SpeedDialChild(
+            child: const Icon(Icons.edit),
+            label: 'नवी बातमी (New Post)',
+            onTap: () => context.go('/posts/new'),
+          ),
+          SpeedDialChild(
+            child: const Icon(Icons.upload),
+            label: 'मीडिया (Media)',
+            onTap: () => context.go('/media'),
+          ),
+        ],
       ),
     );
   }
@@ -202,16 +235,19 @@ class _PostCard extends StatelessWidget {
           child: Row(
             children: [
               // Thumbnail
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: post.featuredMediaUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: post.featuredMediaUrl!,
-                        width: 72, height: 72, fit: BoxFit.cover,
-                        placeholder: (_, __) => Container(width: 72, height: 72, color: AppTheme.surface),
-                        errorWidget: (_, __, ___) => _placeholder(),
-                      )
-                    : _placeholder(),
+              Hero(
+                tag: 'featured-image-${post.id}',
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: post.featuredMediaUrl != null
+                      ? CachedNetworkImage(
+                          imageUrl: post.featuredMediaUrl!,
+                          width: 72, height: 72, fit: BoxFit.cover,
+                          placeholder: (_, __) => Container(width: 72, height: 72, color: AppTheme.surface),
+                          errorWidget: (_, __, ___) => _placeholder(),
+                        )
+                      : _placeholder(),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
