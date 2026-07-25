@@ -41,8 +41,15 @@ class WordPressApiService {
 
   /// Test authentication
   Future<bool> testAuth() async {
-    final r = await _dio.get(_url('/users/me'));
-    return r.statusCode == 200;
+    try {
+      final r = await _dio.get(_url('/users/me'));
+      return r.statusCode == 200;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+        return false;
+      }
+      rethrow;
+    }
   }
 
   /// Save credentials to secure storage

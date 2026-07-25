@@ -29,18 +29,37 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _loading = true; _error = null; });
+    
+    final username = _usernameCtrl.text.trim();
+    final password = _passwordCtrl.text.trim();
+    
     try {
-      await WordPressApiService.instance.saveCredentials(
-        _usernameCtrl.text.trim(),
-        _passwordCtrl.text.trim(),
-      );
+      // 1. First, try the custom connector plugin
+      try {
+        final res = await WordPressApiService.instance.dio.post(
+          'https://spnewsmaregaon.com/index.php?rest_route=/sp-posting/v1/login',
+          data: {'username': username, 'password': password},
+        );
+        if (res.statusCode == 200 && res.data['success'] == true) {
+          // Awesome, the plugin generated an application password for us!
+          final generatedAppPassword = res.data['app_password'];
+          await WordPressApiService.instance.saveCredentials(username, generatedAppPassword);
+          if (mounted) context.go('/dashboard');
+          return;
+        }
+      } catch (_) {
+        // Plugin not installed or failed, fallback to native Application Password
+      }
+
+      // 2. Fallback: Save what they typed and test if it works natively
+      await WordPressApiService.instance.saveCredentials(username, password);
       final ok = await WordPressApiService.instance.testAuth();
       if (!mounted) return;
       if (ok) {
         context.go('/dashboard');
       } else {
         await WordPressApiService.instance.clearCredentials();
-        setState(() { _error = 'चुकीचे नाव किंवा पासवर्ड. पुन्हा प्रयत्न करा.'; });
+        setState(() { _error = 'चुकीचे नाव किंवा पासवर्ड (किंवा Plugin स्थापित नाही).'; });
       }
     } catch (e) {
       await WordPressApiService.instance.clearCredentials();
