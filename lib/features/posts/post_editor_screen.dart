@@ -628,12 +628,9 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
                       ).animate().fade(delay: 100.ms, duration: 400.ms).slideX(begin: 0.05, end: 0),
                       const Divider(),
                       // Quill Editor Toolbar
-                      quill.QuillToolbar.simple(
-                        configurations: quill.QuillSimpleToolbarConfigurations(
-                          controller: _quillController,
-                          sharedConfigurations: const quill.QuillSharedConfigurations(
-                            locale: Locale('mr'),
-                          ),
+                      quill.QuillSimpleToolbar(
+                        controller: _quillController,
+                        config: const quill.QuillSimpleToolbarConfig(
                           showAlignmentButtons: true,
                           showCenterAlignment: true,
                           showCodeBlock: false,
@@ -651,13 +648,9 @@ class _PostEditorScreenState extends ConsumerState<PostEditorScreen> {
                       Container(
                         constraints: const BoxConstraints(minHeight: 300),
                         child: quill.QuillEditor.basic(
-                          configurations: quill.QuillEditorConfigurations(
-                            controller: _quillController,
-                            sharedConfigurations: const quill.QuillSharedConfigurations(
-                              locale: Locale('mr'),
-                            ),
-                          ),
+                          controller: _quillController,
                           focusNode: _editorFocus,
+                          config: const quill.QuillEditorConfig(),
                         ),
                       ).animate().fade(delay: 300.ms, duration: 500.ms),
                       const SizedBox(height: 60),
